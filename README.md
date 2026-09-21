@@ -20,7 +20,7 @@ Open DevTools → Network and filter on `collect`. Click a button.
 
 ## GTM container setup
 
-Replace `GTM-XXXXXXX` in `index.html` with your container ID, then build four tags:
+Container: **`GTM-NW92C2WC`** (already wired into `index.html`). Build four tags in it:
 
 | Tag | Type | Setting | Trigger |
 | --- | --- | --- | --- |

@@ -2,21 +2,33 @@
 <!--
   GTM → two GA4 properties: test harness.
 
-  1. Replace GTM-XXXXXXX below with your container ID.
-  2. python3 -m http.server 8000   (GTM does not load over file://)
-  3. Open http://localhost:8000, open DevTools → Network, filter on "collect".
-  4. Click a button. Two hits, same en=, different tid= means the fan-out works.
+  Container: GTM-NW92C2WC
+
+  1. python3 -m http.server 8000   (GTM does not load over file://)
+  2. Open http://localhost:8000, open DevTools → Network, filter on "collect".
+  3. Click a button. Two hits, same en=, different tid= means the fan-out works.
 -->
-<meta charset="utf-8"><title>GTM dual GA4 test</title>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GTM dual GA4 test</title>
 
-<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-XXXXXXX');</script>
+  <!-- Google Tag Manager -->
+  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-NW92C2WC');</script>
+  <!-- End Google Tag Manager -->
 
-<style>body{font:15px/1.5 system-ui;max-width:48rem;margin:3rem auto;padding:0 1rem}button{font:inherit;padding:.5rem 1rem;margin:0 .5rem .5rem 0}</style>
+  <style>
+    body{font:15px/1.5 system-ui;max-width:48rem;margin:3rem auto;padding:0 1rem}
+    button{font:inherit;padding:.5rem 1rem;margin:0 .5rem .5rem 0}
+  </style>
+</head>
+<body>
+  <h1>GTM → two GA4 properties</h1>
+  <p>DevTools → Network, filter <code>collect</code>. Each click should produce <strong>two</strong> hits — same <code>en=</code>, different <code>tid=</code>.</p>
 
-<h1>GTM → two GA4 properties</h1>
-<p>DevTools → Network, filter <code>collect</code>. Each click should produce <strong>two</strong> hits — same <code>en=</code>, different <code>tid=</code>.</p>
-
-<button onclick="dataLayer.push({event:'test_signup', method:'email'})">test_signup</button>
-<button onclick="dataLayer.push({event:'test_purchase', value:499, currency:'INR'})">test_purchase</button>
-<button onclick="dataLayer.push({event:'test_cta_click', cta_id:'hero'})">test_cta_click</button>
+  <button onclick="dataLayer.push({event:'test_signup', method:'email'})">test_signup</button>
+  <button onclick="dataLayer.push({event:'test_purchase', value:499, currency:'INR'})">test_purchase</button>
+  <button onclick="dataLayer.push({event:'test_cta_click', cta_id:'hero'})">test_cta_click</button>
+</body>
+</html>
