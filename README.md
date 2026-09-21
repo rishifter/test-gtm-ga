@@ -24,10 +24,10 @@ Container: **`GTM-NW92C2WC`** (already wired into `index.html`). Build four tags
 
 | Tag | Type | Setting | Trigger |
 | --- | --- | --- | --- |
-| Google Tag A | Google Tag | `G-AAAAAAA` | Initialization – All Pages |
-| Google Tag B | Google Tag | `G-BBBBBBB` | Initialization – All Pages |
-| Event → A | GA4 Event | Measurement ID `G-AAAAAAA`, event name `{{Event}}` | Custom Event, regex `^test_` |
-| Event → B | GA4 Event | Measurement ID `G-BBBBBBB`, event name `{{Event}}` | same trigger |
+| Tag 1 | Google Tag | `G-AAAAAAA` | Initialization - All Pages |
+| Tag 2 | Google Tag | `G-BBBBBBB` | Initialization - All Pages |
+| GA4 Event 1 | GA4 Event | Measurement ID `G-AAAAAAA`, event name `{{Event}}` | Custom Event, regex `^test_` |
+| GA4 Event 2 | GA4 Event | Measurement ID `G-BBBBBBB`, event name `{{Event}}` | same trigger |
 
 Two Google Tags = two configured destinations. GA4 Event tags target a single measurement ID each, so one per destination is the supported path.
 
@@ -85,7 +85,7 @@ First: **Variables → Configure** (top right of the built-in variables box) →
 
 1. **Tag Configuration** → *Google Tag*
 2. **Tag ID**: `G-AAAAAAA`
-3. **Triggering** → *Initialization – All Pages*
+3. **Triggering** → *Initialization - All Pages*
 4. Save
 
 Repeat identically as `Tag 2` with `G-BBBBBBB`.
@@ -94,7 +94,7 @@ Two Google Tags on the page = two configured GA4 destinations. This is the whole
 
 ### The shared trigger
 
-**Triggers → New**, name it `Custom Event – test_*`.
+**Triggers → New**, name it `Custom Event - test_*`.
 
 1. **Trigger Configuration** → *Custom Event*
 2. **Event name**: `^test_`
@@ -104,15 +104,15 @@ Two Google Tags on the page = two configured GA4 destinations. This is the whole
 
 ### Tags 3 & 4 — the two event tags
 
-**Tags → New**, name it `GA4 Event – 1`.
+**Tags → New**, name it `GA4 Event 1`.
 
 1. **Tag Configuration** → *Google Analytics* → *Google Analytics: GA4 Event*
 2. **Measurement ID**: pick `G-AAAAAAA` from the dropdown (it lists the container's Google Tags), or type it
 3. **Event Name**: `{{Event}}` — passes through whatever the page pushed
-4. **Triggering** → `Custom Event – test_*`
+4. **Triggering** → `Custom Event - test_*`
 5. Save
 
-Repeat as `GA4 Event – 2` with `G-BBBBBBB`, same trigger.
+Repeat as `GA4 Event 2` with `G-BBBBBBB`, same trigger.
 
 ## 3. Preview
 
@@ -122,7 +122,7 @@ In Tag Assistant's left rail:
 
 | Event in rail | Expect under *Tags Fired* |
 | --- | --- |
-| `Initialization` | Tag – 1, Tag – 2 |
+| `Initialization` | Tag 1, Tag 2 |
 | `test_signup` (after a click) | GA4 Event 1, GA4 Event 2 |
 
 Then in the page's own DevTools → Network, filter `collect`: **two hits per click, same `en=test_signup`, different `tid=`.** That is the result.
