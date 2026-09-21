@@ -142,3 +142,59 @@ Publishing is not needed while in Preview. To let someone test independently, **
 GTM's GA4 Event tag targets a single measurement ID, so one tag per destination is the supported path.
 
 The one-tag alternative is a Custom HTML tag calling `gtag('event', ...)`, which fans out to every configured destination automatically. Fewer tags — but the events then vanish from GTM Preview's tag list, which is precisely what you are trying to observe. Not worth it here.
+
+## Catch-all trigger
+
+To route *every* dataLayer event rather than just `test_*`:
+
+```
+Trigger Configuration → Custom Event
+Event name:        .*          [✓] Use regex matching
+Fires on:          Some Custom Events
+  Condition:       Event  →  does not match RegEx  →  ^gtm\.
+```
+
+**The `^gtm\.` exclusion is not optional, including in production.** A bare `.*` also catches `gtm.js`, `gtm.dom` and `gtm.load` on every pageload, plus `gtm.click` / `gtm.scroll` / `gtm.formSubmit` etc. wherever built-in listeners are active. Doubled across two properties that is a lot of requests fired from every user's browser — and they do not even land, because GA4 event names must be letters, numbers and underscores starting with a letter, which `gtm.dom` fails on the dot. Bandwidth spent on hits GA4 was always going to reject.
+
+A negative lookahead in the Event name field (`^(?!gtm\.)`) will not work — GTM's regex engine is RE2, which has no lookahead. Use the condition.
+
+---
+
+# Other approaches, not yet tested
+
+Alternatives to the two-Google-Tags + two-event-tags pattern. **None of these have been verified in this harness.** Recorded so the next person does not re-derive them.
+
+## The problem they address
+
+Two catch-all GA4 Event tags scale fine for event *names* — two tags total, however many events you push. What does not scale is **parameters**: a GA4 Event tag does not auto-forward arbitrary dataLayer keys, so each parameter is declared explicitly, in both tags, forever, with a standing risk they drift apart and the two properties quietly disagree.
+
+## 1. GA4 Destinations (formerly Connected Site Tags)
+
+Configure the fan-out in GA4 rather than GTM. One Google Tag on the page; GA4 forwards to the additional properties.
+
+**Admin → Data Streams → your stream → Configure tag settings → your Google Tag → + Destination → Choose destination.**
+
+- Events without a `send_to` parameter go to the `default` target group — every configured destination, parameters included, no per-property mapping.
+- `send_to` is available if specific events should reach only specific properties.
+- **You can only connect properties you own.** If the scenario is "our property plus the client's own property in their account", this is unavailable.
+- **Connecting a property as a destination removes it from any other Google tag that previously had it.** Silent side effect on whatever else was using it.
+
+**Open question:** [one walkthrough](https://datajournal.datakyu.co/ga4-connected-site-tags/) states destinations require a gtag.js install because gtag.js is not loaded via GTM. That is probably wrong — GTM's Google Tag template fetches its config from Google's servers by tag ID, and destinations are part of that server-side config — but no Google documentation confirms it either way.
+
+**Experiment that settles it**, using this harness: configure Property B as a Destination on Property A in GA4, then delete `Tag 2` and `GA4 Event 2` from GTM so only Property A's tag remains. Click a button and read the `collect` filter.
+
+- Two `tid=` values → destinations work through GTM, and the two-tag pattern is unnecessary.
+- One `tid=` → the article is right, GTM-deployed tags ignore destinations.
+
+## 2. Shared Event Settings variable
+
+Both GA4 Event tags reference a single **Google Tag Settings / Event Settings** variable. Parameters are declared once and both tags inherit them. Keeps the two-tag structure and its Preview visibility, but removes most of the drift risk.
+
+## 3. Custom HTML `gtag('event', ...)`
+
+Fans out to every configured destination automatically, parameters included, with no per-property event tag. Its drawback — invisibility in GTM Preview — matters far less in production than in a harness built specifically to observe tag firing.
+
+## Reference
+
+- [Google tag routing and `send_to`](https://developers.google.com/tag-platform/gtagjs/routing)
+- [GA4 connected site tags walkthrough](https://datajournal.datakyu.co/ga4-connected-site-tags/)
