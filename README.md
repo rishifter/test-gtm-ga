@@ -177,28 +177,76 @@ The button pushes six parameters; only the two declared on Event 1 arrive. `vide
 Three things must line up for a parameter to reach a report:
 
 1. A **Data Layer Variable** in GTM, to read the key off the dataLayer.
-2. An **Event Parameter** row on the GA4 Event tag, mapping that variable to a parameter name.
-3. A **custom dimension** in GA4, if you want the parameter visible in reports rather than only in DebugView.
+2. An **Event Parameter** row reaching the GA4 Event tag, mapping that variable to a parameter name.
+3. A **custom dimension or metric** in GA4, if the parameter should appear in reports rather than only in DebugView.
 
-Step 3 is per property, so twice, and GA4 caps custom dimensions at 50 per property — budget them.
+Steps 1 and 2 are done once in GTM. Step 3 is per property, so twice.
 
-### Recommended: one shared Event Settings variable
+### Step 1 — Data Layer Variables, one per key
 
-Step 2 is where the per-tag cost lives: declared on each GA4 Event tag, every parameter is written twice, forever, and the two can drift. A **Google Tag: Event Settings** variable holds the rows once and both tags inherit them.
+**Variables → User-Defined Variables → New → Data Layer Variable.**
+
+1. **Data Layer Variable Name**: the exact dataLayer key, case-sensitive — `video_title`.
+2. **Data Layer Version**: leave at *Version 2*.
+3. Leave **Set Default Value** unticked. Unset resolves to `undefined`, which is what makes step 2 skip the row rather than send an empty string.
+4. Name the variable `DLV - video_title` (top left) and **Save**.
+
+Repeat for every key the page pushes. For the `video_start` button that is six: `video_title`, `video_url`, `video_provider`, `video_duration`, `video_current_time`, `video_percent`.
+
+This is the one genuinely per-parameter step and there is no way around it — GTM has no "read whatever is on the dataLayer" variable.
+
+### Step 2 — one shared Event Settings variable
+
+Declaring parameter rows on each GA4 Event tag means writing every parameter twice, forever, with the two free to drift. A **Google Tag: Event Settings** variable holds the rows once and both tags inherit them.
 
 **Variables → New → Google Tag: Event Settings**, name it `Event Settings - shared`.
 
-1. **Event Parameters → Add Row** for each parameter — *Name* is the GA4 parameter name, *Value* is `{{DLV - <key>}}`.
-2. Create each `{{DLV - <key>}}` from the value field's **+** → *Data Layer Variable* → **Data Layer Variable Name** = the exact dataLayer key (`video_title`, `video_duration`, …). Name them `DLV - video_title` etc.
-3. Save.
+1. **Event Parameters → Add Row.**
+2. **Event Parameter**: the GA4 parameter name — `video_title`. Keep it identical to the dataLayer key unless you have a reason not to; two names for one thing is a debugging tax.
+3. **Value**: `{{DLV - video_title}}`, picked from the **+** button.
+4. Repeat for all six rows. **Save.**
 
-Then on **both** `GA4 Event 1` and `GA4 Event 2`: **Event Parameters → Event Settings Variable** → `Event Settings - shared`. Done once; every parameter added later flows to both tags automatically.
+Then attach it to **both** event tags. On each of `GA4 Event 1` and `GA4 Event 2`:
 
-Unset variables resolve to `undefined` and GTM omits the row from the hit, so parameters belonging to one event do no harm on another. One shared variable covers every custom event in the container — no per-event variable needed until two events use the same key with different meanings.
+1. **Tags →** the tag **→ Event Parameters** (open the section if collapsed).
+2. **Event Settings Variable**: select `Event Settings - shared`.
+3. **Save.**
 
-Verify in **Network → `collect`**: parameters appear as `ep.video_title=…` (strings) and `epn.video_duration=…` (numbers) on both hits.
+Done once. Every parameter added to the variable later reaches both properties with no tag edit.
 
-> The parameter-dropping behaviour above is verified. The shared **Event Settings variable** is not — the container uses inline per-tag rows, so "both tags inherit the same rows" still needs a run. See [§2 Shared Event Settings variable](#2-shared-event-settings-variable).
+**One variable covers every custom event in the container.** Unset variables resolve to `undefined` and GTM drops the row from the hit, so `video_*` rows cost nothing on a `test_signup` hit. You need a second Event Settings variable only if two events use the same key to mean different things.
+
+### Step 3 — register them in GA4
+
+Without this the parameters arrive and are stored, but no report can group by them. DebugView and Realtime show them regardless, which is why a parameter can look fine for a day and be invisible a week later.
+
+**Admin → Data display → Custom definitions.** Per property, so do this in both.
+
+**Text parameters → Custom dimensions tab → Create custom dimension:**
+
+1. **Dimension name**: what appears in reports — `Video title`.
+2. **Scope**: *Event*.
+3. **Event parameter**: the exact parameter name from step 2 — `video_title`.
+4. **Save.**
+
+**Numeric parameters → Custom metrics tab → Create custom metric:** same fields, plus **Unit of measurement** — *Standard* for a count or percentage, *Seconds* for a duration. `video_duration` and `video_current_time` are seconds; `video_percent` is standard.
+
+Getting this split wrong is the common mistake: a number registered as a dimension gives you rows of distinct values rather than something you can sum or average.
+
+Caps are **50 event-scoped custom dimensions** and **50 custom metrics** per property, so budget them rather than registering every parameter reflexively. Only register what a report needs to slice by.
+
+Data is **not** backfilled — a dimension only populates from hits received after it is created. Reports typically take 24–48 hours to show values.
+
+> Uncertain: `video_title`, `video_url`, `video_provider`, `video_duration`, `video_current_time` and `video_percent` are GA4's own recommended parameters for video events, and GA4 populates its Video engagement report from them when enhanced measurement generates the events. Whether the same parameters sent manually from a GA4 Event tag are picked up natively, or still need registering as custom definitions, is not confirmed. Register them and find out — an unnecessary custom dimension costs one of the fifty, nothing worse.
+
+### Verifying the parameters
+
+1. **Network → `collect`** — the parameters ride on the hit as `ep.<name>` for text and `epn.<name>` for numbers. Expect `ep.video_title=Azim%20Premji…` and `epn.video_duration=180` on **both** `tid=` values. This step needs GTM only; it works before anything is registered in GA4.
+2. **GTM Preview** — click the tag under *Tags Fired*, check the parameter rows resolved to values rather than `undefined`. A row showing `undefined` means the dataLayer key and the Data Layer Variable name disagree, usually on case.
+3. **GA4 DebugView** — confirms GA4 accepted them.
+4. **Reports** — 24–48 hours after registering, the dimension appears in explorations.
+
+> The parameter-dropping behaviour is verified. The shared **Event Settings variable** is not — the container uses inline per-tag rows, so "both tags inherit the same rows" still needs a run. See [§2 Shared Event Settings variable](#2-shared-event-settings-variable).
 
 ### Zero-maintenance alternative
 
