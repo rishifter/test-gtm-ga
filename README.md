@@ -136,6 +136,9 @@ Publishing is not needed while in Preview. To let someone test independently, **
 - **`{{Event}}` renders empty.** The built-in Event variable is not enabled.
 - **Enhanced measurement noise.** If the `collect` filter shows events you did not fire, a data stream still has it switched on.
 - **GTM will not load over `file://`.** Serve over HTTP.
+- **One event name repeating on every hit.** A tag with a hardcoded Event Name reports every event under that name once a catch-all trigger is on it. Useful for isolating one tag in testing, wrong in production — see [Current state of the container](#current-state-of-the-container).
+- **Parameters missing from the hit.** `{{Event}}` carries the name only. Each parameter needs a Data Layer Variable and a row on the tag — see [Event parameters](#event-parameters).
+- **Hits with an empty `en=`.** The catch-all trigger is matching `gtm.*` events. GA4 rejects them.
 
 ## Why two event tags rather than one
 
@@ -157,6 +160,66 @@ Fires on:          Some Custom Events
 **The `^gtm\.` exclusion is not optional, including in production.** A bare `.*` also catches `gtm.js`, `gtm.dom` and `gtm.load` on every pageload, plus `gtm.click` / `gtm.scroll` / `gtm.formSubmit` etc. wherever built-in listeners are active. Doubled across two properties that is a lot of requests fired from every user's browser — and they do not even land, because GA4 event names must be letters, numbers and underscores starting with a letter, which `gtm.dom` fails on the dot. Bandwidth spent on hits GA4 was always going to reject.
 
 A negative lookahead in the Event name field (`^(?!gtm\.)`) will not work — GTM's regex engine is RE2, which has no lookahead. Use the condition.
+
+## Event parameters
+
+**A catch-all trigger forwards the event *name*. It does not forward parameters.** `{{Event}}` carries `video_start` through; `video_title`, `video_duration` and the rest are dropped unless each one is declared. Push a parameter-rich event with no declarations and the `collect` hit still fires — just with nothing but `en=video_start` on it.
+
+Verified. One click of `video_start`, two hits:
+
+| `tid=` | `en=` | parameters on the hit |
+| --- | --- | --- |
+| `G-RD02H7T12Y` | `video_start` | `ep.video_title`, `ep.video_url` |
+| `G-PZPWSL5TPH` | `video_start` | *none* |
+
+The button pushes six parameters; only the two declared on Event 1 arrive. `video_duration`, `video_provider`, `video_current_time` and `video_percent` reach neither property — no Data Layer Variable exists for them.
+
+Three things must line up for a parameter to reach a report:
+
+1. A **Data Layer Variable** in GTM, to read the key off the dataLayer.
+2. An **Event Parameter** row on the GA4 Event tag, mapping that variable to a parameter name.
+3. A **custom dimension** in GA4, if you want the parameter visible in reports rather than only in DebugView.
+
+Step 3 is per property, so twice, and GA4 caps custom dimensions at 50 per property — budget them.
+
+### Recommended: one shared Event Settings variable
+
+Step 2 is where the per-tag cost lives: declared on each GA4 Event tag, every parameter is written twice, forever, and the two can drift. A **Google Tag: Event Settings** variable holds the rows once and both tags inherit them.
+
+**Variables → New → Google Tag: Event Settings**, name it `Event Settings - shared`.
+
+1. **Event Parameters → Add Row** for each parameter — *Name* is the GA4 parameter name, *Value* is `{{DLV - <key>}}`.
+2. Create each `{{DLV - <key>}}` from the value field's **+** → *Data Layer Variable* → **Data Layer Variable Name** = the exact dataLayer key (`video_title`, `video_duration`, …). Name them `DLV - video_title` etc.
+3. Save.
+
+Then on **both** `GA4 Event 1` and `GA4 Event 2`: **Event Parameters → Event Settings Variable** → `Event Settings - shared`. Done once; every parameter added later flows to both tags automatically.
+
+Unset variables resolve to `undefined` and GTM omits the row from the hit, so parameters belonging to one event do no harm on another. One shared variable covers every custom event in the container — no per-event variable needed until two events use the same key with different meanings.
+
+Verify in **Network → `collect`**: parameters appear as `ep.video_title=…` (strings) and `epn.video_duration=…` (numbers) on both hits.
+
+> The parameter-dropping behaviour above is verified. The shared **Event Settings variable** is not — the container uses inline per-tag rows, so "both tags inherit the same rows" still needs a run. See [§2 Shared Event Settings variable](#2-shared-event-settings-variable).
+
+### Zero-maintenance alternative
+
+If per-parameter config is unacceptable at scale, a Custom HTML tag forwarding the whole dataLayer object costs nothing per parameter and fans out to every configured destination on its own — at the price of GTM Preview visibility. See [§3 Custom HTML `gtag('event', ...)`](#3-custom-html-gtagevent-).
+
+## Current state of the container
+
+The two event tags are deliberately not identical — each of us is testing on one, so we can compare GTM's behaviour side by side.
+
+| | `GA4 Event 1` → `G-RD02H7T12Y` | `GA4 Event 2` → `G-PZPWSL5TPH` |
+| --- | --- | --- |
+| Owner | Anita | Rishi |
+| Event name | `video_start`, hardcoded | `{{Event}}` |
+| Event parameters | `video_title`, `video_url` | none yet |
+
+Two consequences to expect while reading `collect` traffic, so they do not read as faults:
+
+- **Event 1 reports everything as `video_start`.** A hardcoded event name plus a catch-all trigger means every dataLayer event — including `gtm.js`, `gtm.dom`, `gtm.load` and enhanced-measurement `scroll` — arrives under that one name. One pageload with a single click produced about fourteen. Fine for testing; `{{Event}}` before any of this goes near production.
+- **Some hits carry an empty `en=`.** The published trigger is a bare `.*` with no `^gtm\.` exclusion, so it matches GTM's internal events too. GA4 rejects them. Worth adding the condition once the comparison is done — see [Catch-all trigger](#catch-all-trigger).
+
+Also worth knowing: only two Data Layer Variables exist in the container, `video_title` and `video_url`; and enhanced measurement is still on for at least one stream, which is where the stray `page_view` and `scroll` hits come from.
 
 ---
 
