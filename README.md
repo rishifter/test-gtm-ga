@@ -136,9 +136,10 @@ Publishing is not needed while in Preview. To let someone test independently, **
 - **`{{Event}}` renders empty.** The built-in Event variable is not enabled.
 - **Enhanced measurement noise.** If the `collect` filter shows events you did not fire, a data stream still has it switched on.
 - **GTM will not load over `file://`.** Serve over HTTP.
-- **One event name repeating on every hit.** A tag with a hardcoded Event Name reports every event under that name once a catch-all trigger is on it. Useful for isolating one tag in testing, wrong in production — see [Current state of the container](#current-state-of-the-container).
+- **One event name repeating on every hit.** A tag with a hardcoded Event Name reports every event under that name once a catch-all trigger is on it. Useful for isolating one tag in testing, wrong in production. Use `{{Event}}`.
 - **Parameters missing from the hit.** `{{Event}}` carries the name only. Each parameter needs a Data Layer Variable and a row on the tag — see [Event parameters](#event-parameters).
 - **Hits with an empty `en=`.** The catch-all trigger is matching `gtm.*` events. GA4 rejects them.
+- **Parameters from one event appearing on later ones.** The dataLayer never clears a key once pushed. Split the tags or reset the keys — see [Step 2b](#step-2b--clear-the-keys-or-they-leak-onto-later-events).
 
 ## Why two event tags rather than one
 
@@ -214,7 +215,107 @@ Then attach it to **both** event tags. On each of `GA4 Event 1` and `GA4 Event 2
 
 Done once. Every parameter added to the variable later reaches both properties with no tag edit.
 
-**One variable covers every custom event in the container.** Unset variables resolve to `undefined` and GTM drops the row from the hit, so `video_*` rows cost nothing on a `test_signup` hit. You need a second Event Settings variable only if two events use the same key to mean different things.
+**One variable covers every custom event in the container** — but only if you clean up after each event. See the next section; this is the part that bites.
+
+A key that has *never* been pushed resolves to `undefined` and GTM drops its row, so an unused parameter costs nothing. A key pushed *once* is a different matter.
+
+### Step 2b — clear the keys, or they leak onto later events
+
+**GTM's data model is cumulative. `dataLayer.push` merges keys in and never removes them.** Push `video_start` with six parameters and those six Data Layer Variables keep resolving for the rest of the page — so the shared Event Settings variable attaches them to every event that follows.
+
+Verified, one page, in order:
+
+| pushed | video parameters on the hit |
+| --- | --- |
+| `test_signup`, before any video push | none |
+| `video_start` | all six |
+| `test_purchase`, after | **all six** |
+| `test_cta_click`, after | **all six**, both properties |
+
+Reports then show `video_title` sitting on `test_purchase`, and GA4 gives you no hint that it is stale.
+
+Four ways out, in the order worth considering them.
+
+#### Option A — split the tags by event family *(recommended)*
+
+Makes the leak structurally impossible: a tag that does not fire cannot attach anything. The dataLayer still holds the stale values; they simply have nowhere to go.
+
+Split the one catch-all event tag into a generic one and a video one, per property:
+
+| Tag | Trigger | Event Settings Variable |
+| --- | --- | --- |
+| `GA4 Event - generic 1` / `2` | catch-all, with `^video_` excluded | none, or a variable holding only universal parameters |
+| `GA4 Event - video 1` / `2` | Custom Event, `^video_` | `Event Settings - video` |
+
+1. **Triggers → New → Custom Event.** Event name `^video_`, tick **Use regex matching**, *All Custom Events*. Name it `Custom Event - video_*`.
+2. On the existing catch-all trigger, add a second condition alongside the `^gtm\.` one: **Event → does not match RegEx → `^video_`**. Both conditions must hold, which is how GTM treats multiple conditions.
+3. **Tags → New → GA4 Event.** Measurement ID `G-RD02H7T12Y`, Event Name `{{Event}}`, **Event Settings Variable** `Event Settings - video`, trigger `Custom Event - video_*`. Name it `GA4 Event - video 1`.
+4. Repeat for `G-PZPWSL5TPH` as `GA4 Event - video 2`.
+5. Remove the video rows from the shared variable the generic tags use — otherwise they still leak through those.
+
+Cost is two tags per event family rather than two in total. Parameters are still declared once per family and still shared across both properties, so this scales by family, not by parameter. Tags are cheap; a cleanup push that a future developer forgets is not.
+
+**Naming:** property number first, family second — `GA4 Event 2 - video`, `GA4 Event 2 - ecommerce`. That sorts a property's tags together in the GTM list, which matters once there are more than a handful.
+
+**Watch the ordering.** Step 2 stops the catch-all firing on `video_*` for *both* properties, while step 4 gives only the property you have built a tag for somewhere to land. Between the two, any property without its own video tag receives no video events at all. Do step 4 for every property before publishing — or accept the gap knowingly, as this container currently does. See [Current state of the container](#current-state-of-the-container).
+
+#### Option B — reset the keys after each push
+
+One extra push, no container changes. Fine for a small number of parameterised events.
+
+```js
+dataLayer.push({
+  event: 'video_start',
+  video_title: 'Azim Premji University - Campus Tour',
+  /* … */
+});
+dataLayer.push({
+  video_title: undefined, video_url: undefined, video_provider: undefined,
+  video_duration: undefined, video_current_time: undefined, video_percent: undefined
+});
+```
+
+Verified: a `test_signup` after that reset carries no video parameters on either property.
+
+The weakness is human, not technical — the reset is easy to forget, and forgetting is silent. Wrap it if you have more than a couple of such events:
+
+```js
+function pushEvent(name, params) {
+  dataLayer.push({ event: name, ...params });
+  dataLayer.push(Object.fromEntries(Object.keys(params).map(k => [k, undefined])));
+}
+```
+
+If enumerating keys is the objection rather than the reset itself, `dataLayer.push(function() { this.reset() })` clears the entire data model in one line — but it also clears anything else living there, such as `user_id` or consent flags. Safe on a harness, not on a real site.
+
+#### Option C — gate each value on the event name
+
+Keeps a single pair of tags. Each parameter's **Value** becomes a Custom JavaScript variable instead of a plain Data Layer Variable:
+
+**Variables → New → Custom JavaScript**, named `CJS - video_title`:
+
+```js
+function() {
+  return {{Event}}.indexOf('video_') === 0 ? {{DLV - video_title}} : undefined;
+}
+```
+
+Returning `undefined` makes GTM drop the row, so the parameter appears only on events whose name starts with `video_`. Point the Event Settings row at `{{CJS - video_title}}` and repeat per parameter.
+
+Untested here. It works in principle but costs one wrapper variable per parameter, each of which looks correct in isolation and is tedious to debug in combination. Prefer A unless you cannot add tags.
+
+#### What does not work
+
+Pushing via gtag's argument syntax, on the theory that its parameters are event-scoped rather than merged:
+
+```js
+function gtag() { dataLayer.push(arguments); }
+gtag('event', 'video_start', { video_title: '…' });   // ✗
+```
+
+Tested: the event fires on both tags and arrives with **no parameters at all**. gtag's arguments syntax puts the values in an `eventModel` that Data Layer Variables cannot read. It avoids the leak by discarding the data.
+
+**Enhanced measurement events are not affected by any of this.** A real outbound click produces `en=click` carrying `link_id`, `link_url`, `link_domain` and `outbound` only. Those events come from the Google Tag and never see your Event Settings variable. If an enhanced-measurement event name shows custom parameters in a report, something is pushing a dataLayer event under the same name and the catch-all trigger is routing it through the GA4 Event tags — GA4 files both under one name.
 
 ### Step 3 — register them in GA4
 
@@ -254,20 +355,27 @@ If per-parameter config is unacceptable at scale, a Custom HTML tag forwarding t
 
 ## Current state of the container
 
-The two event tags are deliberately not identical — each of us is testing on one, so we can compare GTM's behaviour side by side.
+Option A is rolled out on **property 2 only**. The two properties are deliberately not symmetrical — Anita is working on Event 1, Rishi on Event 2, so the two structures can be compared side by side under the same traffic.
 
-| | `GA4 Event 1` → `G-RD02H7T12Y` | `GA4 Event 2` → `G-PZPWSL5TPH` |
+| | `G-RD02H7T12Y` | `G-PZPWSL5TPH` |
 | --- | --- | --- |
 | Owner | Anita | Rishi |
-| Event name | `video_start`, hardcoded | `{{Event}}` |
-| Event parameters | `video_title`, `video_url` | none yet |
+| Generic tag | `GA4 Event 1` | `GA4 Event 2` |
+| Video tag | none | `GA4 Event 2 - video` |
+| Parameters on the generic tag | `Event Settings - video`, plus inline `video_title` and `video_url` | none |
+| Structure | pre-Option A | Option A |
 
-Two consequences to expect while reading `collect` traffic, so they do not read as faults:
+Naming: the video tag is **`GA4 Event 2 - video`** — property number first, family second. `GA4 Event 2 - video`, `GA4 Event 2 - ecommerce`, and so on, sorts all of a property's tags together in the GTM list. Use the same shape for property 1 when it gets one.
 
-- **Event 1 reports everything as `video_start`.** A hardcoded event name plus a catch-all trigger means every dataLayer event — including `gtm.js`, `gtm.dom`, `gtm.load` and enhanced-measurement `scroll` — arrives under that one name. One pageload with a single click produced about fourteen. Fine for testing; `{{Event}}` before any of this goes near production.
-- **Some hits carry an empty `en=`.** The published trigger is a bare `.*` with no `^gtm\.` exclusion, so it matches GTM's internal events too. GA4 rejects them. Worth adding the condition once the comparison is done — see [Catch-all trigger](#catch-all-trigger).
+Triggers, as published: the catch-all is `.*` on *Some Custom Events*, excluding both `^gtm\.` and `^video_`; the video trigger is `^video_` on *All Custom Events*.
 
-Also worth knowing: only two Data Layer Variables exist in the container, `video_title` and `video_url`; and enhanced measurement is still on for at least one stream, which is where the stray `page_view` and `scroll` hits come from.
+Three consequences to expect while reading `collect` traffic, so they do not read as faults:
+
+- **`video_start` no longer reaches `G-RD02H7T12Y` at all.** The catch-all excludes `^video_` for both properties, but only property 2 has a video tag to pick those events up. Property 1 gets video events again when it gets its own `GA4 Event 1 - video`, or sooner by narrowing the exclusion.
+- **Property 1 still leaks video parameters onto other events**, from its Event Settings Variable and its two leftover inline rows. Combined with the point above, that property currently sees `video_title` on `test_cta_click` while seeing no `video_start` whatsoever. Expected for now; both go away with step 5 of Option A.
+- **Property 2 needs no reset push.** A `test_cta_click` after a `video_start` carries no video parameters, because the tag that would attach them does not fire on it. This is the difference Option A buys.
+
+Enhanced measurement is still on for at least one stream, which is where the stray `page_view` and `scroll` hits come from.
 
 ---
 
